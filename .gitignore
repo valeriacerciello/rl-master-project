@@ -1,0 +1,22 @@
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Typical ML project clutter 
+runs/
+logs/
+checkpoints/
+data/

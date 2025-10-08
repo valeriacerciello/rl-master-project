@@ -1,18 +1,27 @@
 # runners/zero_sum_runner.py
 import os, sys
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-    
 import argparse, numpy as np
+
+# make local imports work when running directly
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+# import MAGAIL and PPO entrypoints
 from MAGAIL import run_experiment
 from ppo import train_best_response
 
+
+# =========================
+# Helpers 
+# =========================
 def parse_states(csv: str):
     if not csv:
         return tuple()
     return tuple(int(x) for x in csv.split(","))
 
+
+# =========================
+# Main
+# =========================
 def main():
     ap = argparse.ArgumentParser(description="Zero-sum: MAGAIL → PPO best response")
     ap.add_argument("--seed", type=int, default=0)

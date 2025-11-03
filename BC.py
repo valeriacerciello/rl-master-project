@@ -1,8 +1,8 @@
 # BC.py
 
+from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
-from __future__ import annotations
 from typing import Tuple, List, Callable
 
 

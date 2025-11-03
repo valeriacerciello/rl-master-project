@@ -1,32 +1,34 @@
 # runners/entropy_coordination_runner.py
-import os, sys
+
+from __future__ import annotations
+
+import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from scipy.spatial.distance import jensenshannon
+from typing import Dict
 
-# make local imports work when running directly
+# Ensure local imports work when running directly
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# import MAGAIL entrypoints
 from MAGAIL import run_experiment
 
 
 # =========================
 # Helpers (coordination)
 # =========================
-def _get_prob_A(final_probs):
+def _get_prob_A(final_probs) -> float:
     """
     final_probs can be shape (2,) or (1,2) depending on how StateTabularPolicy is stored.
-    Return P(A) (i.e., probability of action index 0).
+    Return P(A) (action index 0).
     """
     p = np.asarray(final_probs, dtype=float)
-    if p.ndim == 2:
-        return float(p[0, 0])
-    return float(p[0])
+    return float(p[0, 0] if p.ndim == 2 else p[0])
 
 
-def _best_independent_js(expert_joint, grid=301):
+def _best_independent_js(expert_joint: np.ndarray, grid: int = 301) -> float:
     """
     Brute-force (p0,p1) ∈ [0,1]^2 to approximate the minimal JS distance
     between expert_joint and any independent product p0 x p1 over {A,B}.
@@ -45,15 +47,13 @@ def _best_independent_js(expert_joint, grid=301):
 # =========================
 # Analysis (joint-based)
 # =========================
-def analyze_results(results, expert_data=None, use_sample_var=True, report_js_divergence=False):
+def analyze_results(results: Dict, expert_data=None, use_sample_var: bool = True, report_js_divergence: bool = False) -> Dict:
     """
     Computes across-seed stats per β:
       - mean/variance of P(A) per agent
       - JS metric between learner JOINT and expert JOINT (distance by default)
-
-    Signature includes expert_data for compatibility with the old script.
     """
-    analysis = {}
+    analysis: Dict = {}
     ddof = 1 if use_sample_var else 0
 
     for beta in results.keys():
@@ -61,12 +61,12 @@ def analyze_results(results, expert_data=None, use_sample_var=True, report_js_di
         for seed, res in results[beta].items():
             pA0 = _get_prob_A(res["final_probs"]["agent_0"])
             pA1 = _get_prob_A(res["final_probs"]["agent_1"])
-            probA0.append(pA0); probA1.append(pA1)
+            probA0.append(pA0)
+            probA1.append(pA1)
 
-            # Prefer empirical joint from evaluation; expert_joint is provided in results
             expert_joint = np.asarray(res["expert_joint"], dtype=float)
             learner_joint = np.asarray(res["learner_joint"], dtype=float)
-            jsd = jensenshannon(expert_joint, learner_joint, base=2.0)  # distance
+            jsd = jensenshannon(expert_joint, learner_joint, base=2.0)
             if report_js_divergence:
                 jsd = jsd**2
             js_list.append(float(jsd))
@@ -90,39 +90,29 @@ def analyze_results(results, expert_data=None, use_sample_var=True, report_js_di
 
 
 # =========================
-# Plotting (expert-aware)
+# Plotting
 # =========================
-def plot_results(results, analysis, collect_every=10):
+def plot_results(results: Dict, analysis: Dict, collect_every: int = 10) -> None:
     """
     results: dict[beta] -> dict[seed] -> {...}
-    analysis: dict containing per-beta summaries, e.g.
-        analysis[beta]["final_probs_all_seeds"]["agent_0"] -> List[float]
-        analysis[beta]["final_probs_all_seeds"]["agent_1"] -> List[float]
-        (optionally) analysis["extremes"] -> indices or beta values to highlight
+    analysis: dict with per-beta summaries
     collect_every: stride used when sampling training history (epochs)
     """
-    # -------- helpers --------
     def sort_betas(betas):
         return sorted(betas, key=lambda b: float(b))
 
     def normalize_extremes(analysis_obj, betas_sorted):
-        """
-        Returns a list of beta values to highlight. Accepts:
-          - analysis["extremes"] as indices (ints) or as beta values.
-          - If missing/invalid, defaults to [min_beta, max_beta].
-        """
+        """Return beta values to highlight (indices or explicit values supported)."""
         if isinstance(analysis_obj, dict) and "extremes" in analysis_obj:
             raw = analysis_obj["extremes"]
             if not isinstance(raw, (list, tuple)):
                 raw = [raw]
             norm = []
             for e in raw:
-                # index path
                 if isinstance(e, (int, np.integer)):
                     if 0 <= int(e) < len(betas_sorted):
                         norm.append(betas_sorted[int(e)])
                 else:
-                    # treat as value; map to nearest existing beta
                     try:
                         e_float = float(e)
                         idx = int(np.argmin(np.abs(np.array([float(b) for b in betas_sorted]) - e_float)))
@@ -130,8 +120,7 @@ def plot_results(results, analysis, collect_every=10):
                     except Exception:
                         pass
             if norm:
-                return list(dict.fromkeys(norm))  # de-dup, preserve order
-        # fallback: endpoints
+                return list(dict.fromkeys(norm))
         return betas_sorted[:1] if len(betas_sorted) == 1 else [betas_sorted[0], betas_sorted[-1]]
 
     betas_sorted = sort_betas(list(results.keys()))
@@ -139,15 +128,12 @@ def plot_results(results, analysis, collect_every=10):
     seeds = sorted(list(results[beta_values[0]].keys()))
     extremes = normalize_extremes(analysis, betas_sorted)
 
-    # colormaps
     beta_cmap = mpl.colormaps.get_cmap('tab10').resampled(max(len(beta_values), 1))
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    fig.suptitle('MAGAIL Entropy Experiment Results', fontsize=16)  # match old title
+    fig.suptitle('MAGAIL Entropy Experiment Results', fontsize=16)
 
-    # =========================
-    # Plot 1: P(A) vs β (violins)
-    # =========================
+    # ---------- Plot 1: P(A) vs β (violins) ----------
     ax1 = axes[0, 0]
     data0 = [analysis[b]["final_probs_all_seeds"]["agent_0"] for b in beta_values]
     data1 = [analysis[b]["final_probs_all_seeds"]["agent_1"] for b in beta_values]
@@ -156,18 +142,13 @@ def plot_results(results, analysis, collect_every=10):
     offset = 0.18
     width = 0.30
 
-    v0 = ax1.violinplot(data0, positions=x - offset, widths=width,
-                        showmeans=True, showextrema=False, showmedians=False)
-    v1 = ax1.violinplot(data1, positions=x + offset, widths=width,
-                        showmeans=True, showextrema=False, showmedians=False)
+    v0 = ax1.violinplot(data0, positions=x - offset, widths=width, showmeans=True, showextrema=False, showmedians=False)
+    v1 = ax1.violinplot(data1, positions=x + offset, widths=width, showmeans=True, showextrema=False, showmedians=False)
 
-    # Color/alpha bodies to distinguish agents
     for pc in v0['bodies']:
         pc.set_alpha(0.4)
     for pc in v1['bodies']:
         pc.set_alpha(0.4)
-
-    # Thicken mean lines (LineCollection can differ by mpl version)
     for coll in [v0.get('cmeans'), v1.get('cmeans')]:
         if coll is not None:
             try:
@@ -178,7 +159,7 @@ def plot_results(results, analysis, collect_every=10):
                 except Exception:
                     pass
 
-    ax1.axhline(0.5, linestyle='--', alpha=0.7, color='red', label='Max entropy policy')  # match old label
+    ax1.axhline(0.5, linestyle='--', alpha=0.7, color='red', label='Max entropy policy')
     ax1.set_xlim(-0.6, len(beta_values) - 0.4)
     ax1.set_ylim(0.0, 1.0)
     ax1.set_xticks(x)
@@ -190,16 +171,12 @@ def plot_results(results, analysis, collect_every=10):
     handles, labels = ax1.get_legend_handles_labels()
     vio1_patch = mpl.patches.Patch(alpha=0.4, label="Agent 0")
     vio2_patch = mpl.patches.Patch(color="orange", alpha=0.4, label="Agent 1")
-    handles.append(vio1_patch)
-    labels.append("Agent 0")
-    handles.append(vio2_patch)
-    labels.append("Agent 1")
+    handles.extend([vio1_patch, vio2_patch])
+    labels.extend(["Agent 0", "Agent 1"])
     ax1.legend(handles, labels, loc='upper right')
     ax1.grid(True, alpha=0.3)
 
-    # =========================
-    # Plot 2: JS (joint) vs β
-    # =========================
+    # ---------- Plot 2: JS (joint) vs β ----------
     ax2 = axes[0, 1]
     js_per_beta = []
     for b in beta_values:
@@ -213,9 +190,7 @@ def plot_results(results, analysis, collect_every=10):
         js_per_beta.append(js_vals)
 
     x = np.arange(len(beta_values)).astype(float)
-    v = ax2.violinplot(js_per_beta, positions=x, widths=0.6,
-                       showmeans=True, showextrema=False, showmedians=False)
-    
+    v = ax2.violinplot(js_per_beta, positions=x, widths=0.6, showmeans=True, showextrema=False, showmedians=False)
     for pc in v['bodies']:
         pc.set_alpha(0.4)
         pc.set_facecolor("green")
@@ -248,9 +223,7 @@ def plot_results(results, analysis, collect_every=10):
     labels.append("Across-seed distribution")
     ax2.legend(handles, labels, loc='upper right')
 
-    # =========================
-    # Plot 3: Final P(A) per seed (scatter)
-    # =========================
+    # ---------- Plot 3: Final P(A) per seed ----------
     ax3 = axes[0, 2]
     markers = ['o', 's']
     for i, b in enumerate(beta_values):
@@ -271,11 +244,9 @@ def plot_results(results, analysis, collect_every=10):
     ax3.legend(fontsize=9, ncol=2)
     ax3.grid(True, alpha=0.3)
 
-    # =========================
-    # Plot 4: Equilibrium selection vs β
-    # =========================
+    # ---------- Plot 4: Equilibrium selection vs β ----------
     ax4 = axes[1, 0]
-    eps = 0.05  # tolerance for symmetric vs collapsed
+    eps = 0.05
 
     prop_AA, prop_BB, prop_sym = [], [], []
     for b in beta_values:
@@ -309,9 +280,7 @@ def plot_results(results, analysis, collect_every=10):
     ax4.grid(True, alpha=0.3)
     ax4.legend(loc='upper right')
 
-    # =========================
-    # Plot 5: Final joint vs Expert joint (extreme β)
-    # =========================
+    # ---------- Plot 5: Final joint vs Expert joint (extreme β) ----------
     ax5 = axes[1, 1]
     action_names = ['(A,A)', '(A,B)', '(B,A)', '(B,B)']
     x = np.arange(len(action_names))
@@ -335,18 +304,17 @@ def plot_results(results, analysis, collect_every=10):
     ax5.legend()
     ax5.grid(True, alpha=0.3)
 
-    # =========================
-    # Plot 6: Policy P(A) evolution (representative seed) for extreme β
-    # =========================
+    # ---------- Plot 6: Policy P(A) evolution (repr. seed) ----------
     ax6 = axes[1, 2]
     for b in extremes:
         seed = seeds[0]
         prob_hist = results[b][seed]["history"]["policy_probs"]["agent_0"]
         epochs = np.arange(len(prob_hist)) * collect_every
-        # Handle [1,2] or [2] shapes robustly
+
         def _pA_of_step(arr):
             arr = np.asarray(arr, dtype=float)
             return arr[0, 0] if arr.ndim == 2 else arr[0]
+
         ax6.plot(epochs, [_pA_of_step(p) for p in prob_hist], label=f'β={b}, P(A)', linewidth=2)
     ax6.axhline(0.5, color='red', linestyle='--', alpha=0.7, label='0.5 ref')
     ax6.set_xlabel('Training Epoch')
@@ -359,10 +327,8 @@ def plot_results(results, analysis, collect_every=10):
     plt.show()
 
 
-# =========================
-# quick coordination summary
-# =========================
-def coordination_consistency(results):
+def coordination_consistency(results: Dict) -> None:
+    """Print mean/std of (AA+BB) mass for each β."""
     for beta in sorted(results.keys(), key=lambda b: float(b)):
         coord_probs = []
         for seed in results[beta].keys():
@@ -372,10 +338,7 @@ def coordination_consistency(results):
         print(f"β={beta}: Mean coordination = {np.mean(coord_probs):.3f}, Std = {np.std(coord_probs):.3f}")
 
 
-# =========================
-# Main
-# =========================
-def main():
+def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Run MAGAIL coordination experiment")
     parser.add_argument("--expert_type", type=str, default="bimodal",

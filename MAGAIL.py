@@ -3,18 +3,16 @@ import os, random
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import nn
+from torch import nn, roll
 from scipy.spatial.distance import jensenshannon
 
-# --- envs ---
 from envs.entropy_coordination import (
     CoordinationGame,
     generate_expert_data,
     generate_asymmetric_bimodal_expert_data,
     generate_noisy_bimodal_expert_data,
 )
-from envs.zero_sum import ZeroSumGame, generate_expert_s0_s2_s3
-
+from envs.zero_sum import ZeroSumGame, generate_expert_data as generate_expert_data_zero
 
 # =========================
 # Reproducible seeding
@@ -113,37 +111,46 @@ class TabularStateJointDiscriminator(nn.Module):
 
 
 # =========================
-# Rollout (generic)
+# Rollout
 # =========================
-def collect_policy_trajectories(policies, num_episodes=100, env_ctor=CoordinationGame):
+def collect_policy_trajectories(
+    policies,
+    num_episodes=100,
+    env_ctor=CoordinationGame,
+    gamma: float = 0.9,
+    max_steps_cap: int | None = None,
+):
     """
-    Collect per-step samples for either env.
-    Returns dict of T samples:
-      - s: Long[T]          pre-step state index (0 for 1-step; 0/1/2 for zero-sum)
-      - a0,a1: Long[T]
-      - joint_idx: Long[T]  a0 * n_actions + a1
-      - logp0,logp1: Tensor[T]
-      - rewards: Float[T]   env reward (terminal at last step in 2-step env)
+    Collect per-step samples from a (possibly non-terminating) env.
+
+    For discounted, looping games (like ZeroSumGame), we sample a geometric
+    episode length with parameter (1 - gamma). For episodic envs that end
+    early, we still break on done.
     """
+    import torch, numpy as np
     env = env_ctor()
     n_actions = getattr(env, "num_actions", 2)
-    state_to_idx = {"s0": 0, "s1": 1, "s2": 2}
+    state_to_idx = {"s0":0, "s1":1, "s2":2, "s3":3, "Sxplt1":4, "Sxplt2":5, "Scopy":6}
 
     s_list, a0_list, a1_list, lp0_list, lp1_list, rew_list = [], [], [], [], [], []
 
+    def geo_len():
+        # expected length = 1/(1-gamma); for gamma=0.9 it's ~10 steps
+        return max(1, int(np.random.geometric(1.0 - gamma)))
+
     for _ in range(num_episodes):
         obs = env.reset()
-        if "agent_0" in obs:
-            k0, k1 = "agent_0", "agent_1"
-        elif "agent_A" in obs:
-            k0, k1 = "agent_A", "agent_B"
-        else:
-            raise KeyError(f"Unknown agent keys in obs: {list(obs.keys())}")
+        T = geo_len()
+        if max_steps_cap is not None:
+            T = min(T, max_steps_cap)
 
-        done = False
-        while not done:
+        steps = 0
+        while steps < T:
+            k0 = "agent_0" if "agent_0" in obs else "agent_A"
+            k1 = "agent_1" if "agent_1" in obs else "agent_B"
+
             s_val = obs[k0]
-            s_idx = state_to_idx.get(s_val, 0) if isinstance(s_val, str) else 0
+            s_idx = state_to_idx.get(s_val, 0) if isinstance(s_val, str) else int(s_val)
 
             act0 = policies["agent_0"].sample_action(s_idx)
             act1 = policies["agent_1"].sample_action(s_idx)
@@ -158,7 +165,9 @@ def collect_policy_trajectories(policies, num_episodes=100, env_ctor=Coordinatio
             rew_list.append(float(r[k0]))
 
             obs = next_obs
-            done = bool(d["__all__"])
+            steps += 1
+            if d.get("__all__", False):
+                break
 
     s = torch.tensor(s_list, dtype=torch.long)
     a0 = torch.tensor(a0_list, dtype=torch.long)
@@ -229,12 +238,15 @@ class MAGAILTrainer:
 
         self.disc_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=lr_disc)
 
+        self.expert_uses_cum = 0  # cumulative count of expert samples consumed
+
         self.history = {
             "policy_probs": {"agent_0": [], "agent_1": []},  # stores [num_states, nA]
             "disc_loss": [],
             "policy_loss": {"agent_0": [], "agent_1": []},
             "entropy": {"agent_0": [], "agent_1": []},
             "joint_action_dist": [],  # average over states of product-of-marginals
+            "expert_queries": [],  # cumulative expert samples used at each snapshot
         }
 
     # --- Discriminator update ---
@@ -248,7 +260,7 @@ class MAGAILTrainer:
                     s  = torch.as_tensor(data["s"])[sel].long()
                     a0 = torch.as_tensor(data["a0"])[sel].long()
                     a1 = torch.as_tensor(data["a1"])[sel].long()
-                    return s, a0, a1
+                    return s, a0, a1, sel.numel()
                 elif "joint_idx" in data:
                     idx = torch.as_tensor(data["joint_idx"], dtype=torch.long)
                     sel = torch.randperm(idx.shape[0])[:min(n, idx.shape[0])]
@@ -267,8 +279,8 @@ class MAGAILTrainer:
             s  = torch.tensor([t.get("state_idx", 0) for t in batch], dtype=torch.long)
             return s, a0, a1
 
-        exp_s, exp_a0, exp_a1 = _sample_triplets(expert_data, batch_size, self.n_actions)
-        pol_s, pol_a0, pol_a1 = _sample_triplets(policy_data, batch_size, self.n_actions)
+        exp_s, exp_a0, exp_a1, exp_used = _sample_triplets(expert_data, batch_size, self.n_actions)
+        pol_s, pol_a0, pol_a1, _ = _sample_triplets(policy_data, batch_size, self.n_actions)
 
         crit = torch.nn.BCEWithLogitsLoss(reduction="mean")
         exp_logits = self.discriminator.logit(exp_a0, exp_a1, s_idx=exp_s)
@@ -280,9 +292,10 @@ class MAGAILTrainer:
 
         self.disc_optimizer.zero_grad()
         loss.backward()
+        self.detector_update_called = True
         self.disc_optimizer.step()
 
-        return float(loss.detach())
+        return float(loss.detach()), int(exp_used)
 
     # --- Policy update ---
     def update_policies(self, policy_data, batch_size=64):
@@ -332,39 +345,55 @@ class MAGAILTrainer:
 
     # --- Training loop ---
     def train(self, expert_data, num_epochs=500, batch_size=64, collect_every=10, rollout_episodes=100):
+        # 1) initial snapshot BEFORE any expert use
+        self.record_statistics(
+            disc_loss=0.0,
+            policy_losses={"agent_0": 0.0, "agent_1": 0.0},
+            expert_used_cum=self.expert_uses_cum,
+        )
+
         for epoch in range(num_epochs):
-            policy_data = collect_policy_trajectories(self.policies, num_episodes=rollout_episodes, env_ctor=self.env_ctor)
-            disc_loss = self.update_discriminator(expert_data, policy_data, batch_size)
+            policy_data = collect_policy_trajectories(
+                self.policies, num_episodes=rollout_episodes, env_ctor=self.env_ctor
+            )
+            disc_loss, used_n = self.update_discriminator(expert_data, policy_data, batch_size)
+            self.expert_uses_cum += int(used_n)
+
             policy_losses = self.update_policies(policy_data, batch_size)
-            if epoch % collect_every == 0:
-                self.record_statistics(disc_loss, policy_losses)
+
+            # 2) record AFTER the epoch’s updates every `collect_every`
+            if (epoch + 1) % collect_every == 0:
+                self.record_statistics(disc_loss, policy_losses, expert_used_cum=self.expert_uses_cum)
+
 
     # --- Logging ---
-    def record_statistics(self, disc_loss, policy_losses):
+    def record_statistics(self, disc_loss, policy_losses, expert_used_cum: int):
         for agent in ["agent_0", "agent_1"]:
-            probs = self.policies[agent].get_probs().detach().cpu().numpy()  # [S, A] or [A]
+            probs = self.policies[agent].get_probs().detach().cpu().numpy()
             if probs.ndim == 1:
-                probs = probs[None, :]
+                probs = probs[0][None, :]
             self.history["policy_probs"][agent].append(probs.copy())
 
         self.history["disc_loss"].append(disc_loss)
         for agent in ["agent_0", "agent_1"]:
-            self.history["policy_loss"][agent].append(policy_losses[agent])
+            self.history["policy_loss"][agent].append(policy_losses.get(agent, 0.0))
 
         for agent in ["agent_0", "agent_1"]:
             self.history["entropy"][agent].append(float(self.policies[agent].entropy().item()))
 
-        # Average over states of product-of-marginals (for quick glance; not used in eval)
         p0 = self.policies["agent_0"].get_probs().detach().cpu().numpy()
         p1 = self.policies["agent_1"].get_probs().detach().cpu().numpy()
         if p0.ndim == 1:
             p0 = p0[None, :]; p1 = p1[None, :]
-        joints = [np.outer(p0[s], p1[s]).reshape(-1) for s in range(p0.shape[0])]
+        joints = [np.outer(p0[s], p1[s]).ravel() for s in range(p0.shape[0])]
         self.history["joint_action_dist"].append(np.mean(np.stack(joints, axis=0), axis=0))
+
+        # log cumulative expert uses for x-axis
+        self.history["expert_queries"].append(int(expert_used_cum))
 
 
 # =========================
-# Runner + metrics (generic)
+# Runner + metrics
 # =========================
 def _expert_num_samples(expert_data):
     """Number of per-step samples in expert data."""
@@ -404,7 +433,7 @@ def run_experiment(
     lr_policy = 0.01,
     lr_disc = 0.01,
     collect_every = 10,
-    force_zero_entropy=False,         # optional hard override (sets β=[0.0])
+    force_zero_entropy=False,        
 ):
     # -------- choose env + expert --------
     if env_name == "coordination":
@@ -430,10 +459,10 @@ def run_experiment(
         env_ctor = ZeroSumGame
         n_actions = 3
         # expert: force s0->s2->s3
-        expert_data = generate_expert_s0_s2_s3(num_episodes=1000, seed=expert_seed)
+        expert_data = generate_expert_data_zero(total_samples=1000, gamma=0.9, expert_action=2, seed=expert_seed)
         # default: NO entropy for zero-sum
         default_betas = [0.0]
-
+    
     else:
         raise ValueError(f"Unknown env_name: {env_name}")
 
@@ -459,12 +488,17 @@ def run_experiment(
 
             trainer = MAGAILTrainer(
                 env_ctor=env_ctor,
-                beta=beta,                              
+                beta=beta,
                 policy_init_uniform=policy_init_uniform,
                 reward_style=reward_style,
                 lr_policy=lr_policy,
                 lr_disc=lr_disc,
+                num_states_for_D=(7 if env_name == "zero_sum" else None),
+                n_actions=(3 if env_name == "zero_sum" else None),
             )
+
+            roll = collect_policy_trajectories(trainer.policies, num_episodes=5, env_ctor=ZeroSumGame, gamma=0.9)
+            print({k: len(v) for k,v in roll.items() if hasattr(v, "__len__")})
 
             trainer.train(
                 expert_data,
@@ -484,7 +518,7 @@ def run_experiment(
             }
 
             # Eval
-            eval_roll = collect_policy_trajectories(trainer.policies, num_episodes=eval_episodes, env_ctor=env_ctor)
+            eval_roll = collect_policy_trajectories(trainer.policies, num_episodes=eval_episodes, env_ctor=env_ctor, gamma=0.9)
             learner_joint = _joint_hist_from_rollout(eval_roll, n_actions=n_actions)
             coord_rate = _matching_rate(eval_roll)
             js_dist = float(jensenshannon(expert_joint, learner_joint, base=2))  # distance

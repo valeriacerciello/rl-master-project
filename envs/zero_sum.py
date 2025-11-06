@@ -50,9 +50,9 @@ class ZeroSumGame:
             r = -1.0
 
         obs = {"agent_0": self.state, "agent_1": self.state}
-        # no episodic termination: let the caller control horizon/discount
+        # no episodic termination
         dones = {"agent_0": False, "agent_1": False, "__all__": False}
-        rewards = {"agent_0": r, "agent_1": -r}  # zero-sum convention
+        rewards = {"agent_0": r, "agent_1": -r}  # zero-sum 
         return obs, rewards, dones, {}
 
     def _next_state_idx(self, s, a, b):
@@ -72,8 +72,8 @@ class ZeroSumGame:
         S, A = self.num_states, self.num_actions
         s0,s1,s2,s3,Sxplt1,Sxplt2,Scopy = range(S)
 
-        R = np.zeros((S,A,A), dtype=np.float64)
-        P = np.zeros((S,A,A,S), dtype=np.float64)
+        R = np.zeros((S,A,A), dtype=np.float32)
+        P = np.zeros((S,A,A,S), dtype=np.float32)
 
         R[Sxplt1,:,:] = +1.0
         R[Sxplt2,:,:] = -0.1

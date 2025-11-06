@@ -52,7 +52,7 @@ def _compute_exploitability_curve(history: Dict, R: np.ndarray, P: np.ndarray, r
                 reward=R, transition=P, initial_dist=rho0, gamma=gamma
             )
         )
-    return np.asarray(vals, dtype=np.float64)
+    return np.asarray(vals, dtype=np.float32)
 
 
 def main() -> None:
@@ -106,8 +106,8 @@ def main() -> None:
         print(f" done. final exploitability = {curve[-1]:.3f} (snapshots={len(curve)})")
 
     # ===== 2) Train BC baseline =====
-    expert1 = np.zeros((S, A), dtype=np.float64); expert1[:, 2] = 1.0
-    expert2 = np.zeros((S, A), dtype=np.float64); expert2[:, 2] = 1.0
+    expert1 = np.zeros((S, A), dtype=np.float32); expert1[:, 2] = 1.0
+    expert2 = np.zeros((S, A), dtype=np.float32); expert2[:, 2] = 1.0
 
     bc_total_samples = 128_000
     bc_eval_interval = 1_280

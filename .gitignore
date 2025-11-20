@@ -1,0 +1,124 @@
+# -----------------------------
+# Python cache / bytecode
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Version managers
+.python-version
+
+# -----------------------------
+# Virtual environments
+# -----------------------------
+.venv/
+venv/
+env/
+.envrc
+.conda/
+conda-env.yaml
+
+# dotenv / secrets (keep templates)
+.env
+.env.*
+*.env
+!.env.example
+!.env.template
+
+# -----------------------------
+# Jupyter
+# -----------------------------
+.ipynb_checkpoints/
+.jupyter/lab/workspaces/
+
+# -----------------------------
+# Build & packaging artifacts
+# -----------------------------
+*.egg-info/
+*.egg
+dist/
+build/
+wheels/
+pip-wheel-metadata/
+
+# Caches
+.cache/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.pyre/
+.ruff_cache/
+.hypothesis/
+.nox/
+.tox/
+htmlcov/
+.coverage*
+coverage.xml
+
+# -----------------------------
+# Docs
+# -----------------------------
+docs/_build/
+
+# -----------------------------
+# ML project clutter
+# -----------------------------
+runs/
+logs/
+checkpoints/
+models/
+outputs/
+wandb/
+mlruns/
+tensorboard/
+!runs/.gitkeep
+!logs/.gitkeep
+!checkpoints/.gitkeep
+!models/.gitkeep
+!outputs/.gitkeep
+
+data/
+!data/.gitkeep
+!data/README.md
+
+# Large/common model files
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.joblib
+*.pkl
+*.pickle
+*.npz
+*.npy
+*.h5
+*.hdf5
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.xz
+*.lz4
+
+# -----------------------------
+# OS / Editor / IDE
+# -----------------------------
+# macOS
+.DS_Store
+.AppleDouble
+._*
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Editors/IDEs
+.vscode/
+.idea/
+*.code-workspace
+

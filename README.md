@@ -1,6 +1,25 @@
-# MAGAIL Coordination Experiment
+# Analyzing Theoretical and Practical Weaknesses of MAGAIL: Entropy Assumptions and Multiple Best Responses
 
-A tiny, reproducible experiment that shows two ways MAGAIL can “fail” in a simple 2×2 coordination game—and how an entropy bonus changes the behavior.
+## Overview
+
+This repository contains a set of controlled experiments designed to reveal and analyze **structural weaknesses in the Multi-Agent Generative Adversarial Imitation Learning (MAGAIL)** framework. Although MAGAIL extends GAIL to multi-agent settings, its theoretical guarantees rely on assumptions that seldom hold in realistic environments. Our experiments demonstrate two critical weaknesses:
+
+1. **MAGAIL implicitly relies on the absence of entropy regularization in multi-agent learning**
+2. **MAGAIL assumes the existence of *unique* best responses**
+
+This repository provides reproducible environments, training loops, and evaluation tools illustrating these failures in minimal settings.
+
+---
+
+## Weakness #1 — MAGAIL Assumes No Entropy Regularization
+
+### Theoretical Background
+
+MAGAIL's theoretical convergence guarantees assume $\beta=0$ (no entropy regularization). However, standard practice uses $\beta>0$ to stabilize training, which fundamentally changes the optimization landscape: entropy bonuses introduce coordination failures between independently trained agents even when they perfectly match individual occupancy measures.
+
+### Empirical Demonstration: Coordination Environment
+
+To illustrate this weakness, we construct a tiny, reproducible experiment that shows two ways MAGAIL can “fail” in a simple 2×2 coordination game—and how an entropy bonus changes the behavior.
 
 * **Fail 1 — Symmetry/selection failure (β = 0):** with two equally-good pure NE (AA and BB), vanilla MAGAIL arbitrarily collapses to one convention depending on randomness.
 * **Fail 2 — Correlated-demo mismatch:** when expert demonstrations are **correlated** (only AA/BB), MAGAIL with **independent** agent policies can’t represent that correlation. Even with entropy, it can only produce an **independent** 50/50 mix (which necessarily places mass on AB/BA), so the joint distribution never matches the demos.
@@ -9,60 +28,66 @@ With a sufficiently large entropy bonus β, both agents converge to the **max-en
 
 ---
 
-## Contents
+## Weakness #2 — MAGAIL Assumes Unique Best Responses
 
-* Script: `Entropy_test/magail_coordination_experiment.py` (works as a CLI script and importable module)
-* Produces: printed metrics and plots (unless `--no_plots` is set)
+### Theoretical Background
+
+Below Corollary 5, the MAGAIL authors assume that for each agent $i$, the expert policy $\pi_{i_E}$ is the **unique** optimal response to the other experts' policies. However, this assumption fails in many realistic settings where multiple equally optimal responses exist due to symmetry or payoff indifference.
+
+When best responses are non-unique, occupancy measure matching becomes insufficient: a learner can perfectly match the expert's occupancy distribution while adopting a completely different (and highly exploitable) strategy. This reveals a fundamental limitation: **occupancy matching does not guarantee strategic equivalence in games with multiple best responses.**
+
+### Empirical Demonstration: Multi-Response Exploitability
+
+To illustrate this weakness, we construct a tiny, reproducible experiment that shows how MAGAIL can produce highly exploitable policies in a simple two-agent zero-sum game with multiple best responses.
+
+In this environment, the expert policies form a Nash equilibrium, but each agent has multiple equally optimal responses to the other's strategy. When trained with MAGAIL, the learned policies match the expert occupancy measures but deviate significantly in strategic behavior, leading to high exploitability.
+
+Our experiments demonstrate that even with perfect recovery of the expert's state visitation distribution and complete knowledge of the transition model, MAGAIL produces policies with large Nash gaps. This reveals a fundamental limitation: **occupancy measure matching is insufficient for recovering Nash equilibria when multiple best responses exist.**
 
 ---
 
-## Experiment design (what’s inside)
+## Code Structure
 
-* **Environment:** one-step, two-agent coordination game. Reward = 1 if actions match; 0 otherwise.
-* **Policies:** tabular, independent per agent (PyTorch `nn.Module` with logits; softmax → probs).
-* **Discriminator:** tabular over joint actions (AA, AB, BA, BB), trained with `BCEWithLogitsLoss`.
-* **Generator reward:** choose either non-saturating `log D` or GAIL `-log(1−D)`.
-* **Expert datasets (vectorized, seedable):**
-
-  * `mixed` (independent 50/50 → ≈25% each AA/AB/BA/BB)
-  * `bimodal` / `asymmetric` (correlated AA/BB with chosen ratio)
-  * `noisy` (mostly AA/BB + symmetric AB/BA noise)
-* **Metrics:**
-
-  * Per-agent entropy and final action probabilities
-  * **Joint** action distribution $AA, AB, BA, BB$
-  * **JS distance on the joint** (expert vs learner)
-  * Coordination rate $P(AA)+P(BB)$
-  * Across-seed variance of $P(A)$
+```
+rl-master-project/
+│
+├── envs/                      # Minimal multi-agent environments
+│   ├── __init__.py
+│   ├── entropy_coordination.py
+│   └── zero_sum.py
+│
+├── runners/                   # Training and experiment scripts
+│   ├── entropy_coordination_runner.py
+│   └── zero_sum_runner.py
+│
+├── MAGAIL.py                  # Multi-Agent GAIL implementation
+├── BC.py                      # Behavior Cloning baseline
+├── calc_exploitability.py     # Exploitability analysis utilities
+└── README.md                  # Project documentation
+```
 
 ---
 
 ## Requirements
 
-* Python **3.12+** (PyTorch wheels are currently smoother on 3.12 than 3.13)
-* Packages: `numpy`, `matplotlib`, `torch`, `scipy`
+* Python 3.9+
+* PyTorch
+* NumPy
+* Matplotlib
+* SciPy
 
-Install (in your activated virtualenv):
-
-```bash
-python -m pip install --upgrade pip
-python -m pip install numpy matplotlib scipy
-# Torch (CPU) example; swap URL if you want GPU:
-python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-```
-
-> Don’t want SciPy? We can replace JS distance with a tiny NumPy helper later.
-
----
-
-## Quick start
-
-From the project root:
+Install dependencies:
 
 ```bash
-python Entropy_test/magail_coordination_experiment.py
+pip install torch numpy matplotlib scipy
 ```
 
+## Running Experiments
+
+### Entropy Coordination Experiment:
+```bash
+python runners/entropy_coordination_runner.py
+```
 Defaults:
 
 * `--expert_type bimodal` (50% AA, 50% BB, zero AB/BA)
@@ -73,131 +98,47 @@ Defaults:
 
 You’ll see training logs, plots, and a “coordination consistency” summary.
 
----
-
-## CLI options
+CLI options:
 
 ```text
---expert_type {mixed,bimodal,asymmetric,noisy,all_AA}
---betas <floats...>                 e.g., --betas 0.0 1.0 5.0
---seeds <ints...>                   e.g., --seeds 1 2 3 4 5
---epochs <int>                      training epochs (default 4000)
---rollout_episodes <int>            per-epoch rollout size (default 200)
---eval_episodes <int>               evaluation rollout size (default 5000)
---lr_policy <float>                 default 0.01
---lr_disc <float>                   default 0.01
---reward_style {non_saturating,gail}
+--expert_type {mixed,bimodal,asymmetric,noisy,all_AA}  
+                                    default: bimodal
+--betas <floats...>                 default: 0.0 0.1 0.5 1.0 2.0 5.0
+--seeds <ints...>                   default: 42 123 456 789 999
+--epochs <int>                      default: 4000
+--rollout_episodes <int>            default: 200
+--eval_episodes <int>               default: 5000
+--lr_policy <float>                 default: 0.01
+--lr_disc <float>                   default: 0.01
+--reward_style {non_saturating,gail}  
+                                    default: non_saturating
 --policy_init_uniform               start both policies at 0.5/0.5
---no_plots                          skip plotting (prints metrics only)
-```
-
-Help:
-
-```bash
-python Entropy_test/magail_coordination_experiment.py -h
+--batch_size <int>                  default: 64
+--collect_every <int>               default: 10
 ```
 
 ---
 
-## Suggested runs
-
-### A) Show symmetry failure (β=0 collapses to a random pure convention)
-
+### Zero-Sum Exploitability Experiment:
 ```bash
-python Entropy_test/magail_coordination_experiment.py \
-  --expert_type bimodal \
-  --betas 0.0 \
-  --reward_style gail --lr_disc 0.005 \
-  --policy_init_uniform \
-  --seeds 1 2 3 4 5 6 7 8 9 10 \
-  --epochs 2000 --no_plots
+python runners/zero_sum_runner.py
 ```
 
-**Expected:** coordination ≈ **1.0**; across seeds, some runs choose AA and others BB (seed-dependent collapse).
+Defaults:
 
-### B) Show entropy pushes to max-entropy (independent 50/50)
+* `expert_action 2` (middle action in 3-action game)
+* `expert_total 1000` (expert samples)
+* `magail_seeds 42 123 456`
+* `bc_seeds 42 123 456`
+* `num_epochs 1000`
+* `rollout_episodes 200`
+* `batch_size 128`
+* `lr_policy 0.01` `lr_disc 0.01`
+* `beta 0.0` (zero entropy for zero-sum games)
+* `gamma 0.9` (discount factor)
+* `reward_style non_saturating`
 
-```bash
-python Entropy_test/magail_coordination_experiment.py \
-  --expert_type bimodal \
-  --betas 5.0 \
-  --reward_style gail --lr_disc 0.005 \
-  --policy_init_uniform \
-  --seeds 1 2 3 4 5 \
-  --epochs 2000 --no_plots
-```
+The script trains both MAGAIL and BC baselines, computes exploitability curves, and generates comparison plots.
 
-**Expected:** coordination ≈ **0.5**, entropies ≈ **log 2**, per-agent $P(A)$ ≈ **0.5** across seeds.
+**Note:** This experiment has no CLI arguments.
 
-### C) Control: correlated demos can’t be matched by independent policies
-
-```bash
-python Entropy_test/magail_coordination_experiment.py \
-  --expert_type bimodal \
-  --betas 0.0 5.0 \
-  --reward_style gail --lr_disc 0.005 \
-  --seeds 42 123 456 789 999 \
-  --epochs 2000
-```
-
-**Expected (in plots):** **JS distance (joint)** stays **high** for β=0 and β=5—learner is independent, expert is correlated.
-
-### D) Control: mixed expert (no correlation)
-
-```bash
-python Entropy_test/magail_coordination_experiment.py \
-  --expert_type mixed \
-  --betas 0.0 5.0 \
-  --reward_style gail --lr_disc 0.005 \
-  --seeds 42 123 456 789 999 \
-  --epochs 2000 --no_plots
-```
-
-**Expected:** coordination ≈ **0.5** for both β; JS distance drops (learner matches uniform joint).
-
----
-
-## Interpreting outputs
-
-* **Coordination consistency:** $P(AA)+P(BB)$ from the learned policy (product joint).
-
-  * ≈ 1.0 → near-pure corner (AA or BB).
-  * ≈ 0.5 → independent 50/50 mix.
-
-* **Policy entropy:** goes to \~0 at β=0 (pure), and to \~**log 2 ≈ 0.693** when β is large.
-
-* **JS distance (joint):** compares expert vs learner over $AA, AB, BA, BB$.
-
-  * For **correlated** experts (AA/BB only), it stays high even with β=5 because independent policies must put mass on AB/BA. That’s the structural mismatch we want to highlight.
-
-* **Across-seed variance of $P(A)$:** high variance at β=0 means different runs pick different conventions. Sometimes all seeds pick the same corner by chance—bump the seed count or use `--policy_init_uniform` to make the random tie-break more visible.
-
----
-
-## Reproducibility
-
-We seed Python `random`, NumPy, PyTorch (CPU/GPU), and `PYTHONHASHSEED`. For this tabular CPU experiment, results should be stable; minor numeric differences are still possible across platforms.
-
----
-
-## Troubleshooting
-
-* **SciPy missing:**
-  `python -m pip install scipy`
-
-* **PyTorch on Python 3.13/macOS:**
-  If wheels are finicky, use a Python **3.12** venv.
-
-* **Matplotlib warning about `get_cmap`:**
-  Harmless deprecation; we can switch to `plt.colormaps.get_cmap(...)` later.
-
----
-
-## Citing the behavior
-
-This experiment illustrates that:
-
-1. **Without entropy (β=0),** MAGAIL is unstable across seeds in symmetric games and collapses to an arbitrary pure convention.
-2. **With entropy (β large),** MAGAIL converges to the **max-entropy** independent mixed strategy (0.5/0.5) but **cannot** match **correlated** expert demonstrations with independent policies—joint JS stays high.
-
-That juxtaposition is the core point we wanted for the write-up.

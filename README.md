@@ -103,9 +103,9 @@ CLI options:
 ```text
 --expert_type {mixed,bimodal,asymmetric,noisy,all_AA}  
                                     default: bimodal
---betas <floats...>                 default: 0.0 0.1 0.5 1.0 2.0 5.0
+--betas <floats...>                 default: 0.0 0.1 0.5 1.0 5.0
 --seeds <ints...>                   default: 42 123 456 789 999
---epochs <int>                      default: 4000
+--epochs <int>                      default: 400
 --rollout_episodes <int>            default: 200
 --eval_episodes <int>               default: 5000
 --lr_policy <float>                 default: 0.01

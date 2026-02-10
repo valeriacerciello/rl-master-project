@@ -1,4 +1,4 @@
-# Analyzing Theoretical and Practical Weaknesses of MAGAIL: Entropy Assumptions and Multiple Best Responses
+# On the Role of Entropy and Best-Response Uniqueness in MAGAIL
 
 ## Overview
 
@@ -30,7 +30,7 @@ With a sufficiently large entropy bonus β, both agents converge to the **max-en
 
 ## Weakness #2 — MAGAIL Assumes Unique Best Responses
 
-### Theoretical Background
+### The™
 
 Below Corollary 5, the MAGAIL authors assume that for each agent $i$, the expert policy $\pi_{i_E}$ is the **unique** optimal response to the other experts' policies. However, this assumption fails in many realistic settings where multiple equally optimal responses exist due to symmetry or payoff indifference.
 
@@ -85,41 +85,72 @@ pip install torch numpy matplotlib scipy
 ## Running Experiments
 
 ### Entropy Coordination Experiment:
+
+Run: 
+
 ```bash
 python runners/entropy_coordination_runner.py
 ```
+
+Reproduce paper figures (save + headless):
+
+```bash
+python runners/entropy_coordination_runner.py --expert_type mixed   --save --no_show
+python runners/entropy_coordination_runner.py --expert_type noisy   --save --no_show
+python runners/entropy_coordination_runner.py --expert_type bimodal --save --no_show
+python runners/entropy_coordination_runner.py --expert_type all_AA  --save --no_show
+```
+
+Figures are saved to plots/entropy_exp/ with names like new_mixed.png and new_mixed.pdf.
+
+#### Expert types:
+
+Used in the report:
+
+* `mixed`   : uniformly mixed expert (report wording: “uniformly mixed”)
+* `noisy`   : mixed but non-uniform expert (report wording: “mixed but non-uniform / noisy”)
+* `bimodal` : bimodal expert
+* `all_AA`  : single-mode expert (AA only) (report wording: “single-mode only AA”)
+
+Extra (not used in the report):
+
+* `asymmetric` : additional expert distribution included for exploratory analysis / ablations (not referenced in the report figures)
+
 Defaults:
 
 * `--expert_type bimodal` (50% AA, 50% BB, zero AB/BA)
-* `--betas 0.0 0.1 0.5 1.0 2.0 5.0`
+* `--betas 0.0 0.1 0.5 1.0 5.0`
 * `--reward_style non_saturating` (`log D`)
 * `--lr_policy 0.01` `--lr_disc 0.01`
-* `--epochs 4000` `--seeds 42 123 456 789 999`
+* `--epochs 400` `--seeds 42 123 456 789 999`
 
 You’ll see training logs, plots, and a “coordination consistency” summary.
 
 CLI options:
 
 ```text
---expert_type {mixed,bimodal,asymmetric,noisy,all_AA}  
-                                    default: bimodal
---betas <floats...>                 default: 0.0 0.1 0.5 1.0 5.0
---seeds <ints...>                   default: 42 123 456 789 999
---epochs <int>                      default: 400
---rollout_episodes <int>            default: 200
---eval_episodes <int>               default: 5000
---lr_policy <float>                 default: 0.01
---lr_disc <float>                   default: 0.01
---reward_style {non_saturating,gail}  
-                                    default: non_saturating
---policy_init_uniform               start both policies at 0.5/0.5
---batch_size <int>                  default: 64
---collect_every <int>               default: 10
+--expert_type {mixed,bimodal,asymmetric,noisy,all_AA}   default: bimodal
+--betas <floats...>                                    default: 0.0 0.1 0.5 1.0 5.0
+--seeds <ints...>                                      default: 42 123 456 789 999
+--epochs <int>                                         default: 400
+--rollout_episodes <int>                               default: 200
+--eval_episodes <int>                                  default: 5000
+--lr_policy <float>                                    default: 0.01
+--lr_disc <float>                                      default: 0.01
+--reward_style {non_saturating,gail}                    default: non_saturating
+--policy_init_uniform                                  start both policies at 0.5/0.5
+--batch_size <int>                                     default: 64
+--collect_every <int>                                  default: 10
+--outdir <path>                                        default: plots/entropy_exp
+--tag <str>                                            default: new
+--save                                                 save figure(s) to disk
+--no_show                                              do not open a window (headless)
 ```
 
 ---
 
 ### Zero-Sum Exploitability Experiment:
+
 ```bash
 python runners/zero_sum_runner.py
 ```

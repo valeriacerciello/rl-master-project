@@ -17,9 +17,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from MAGAIL import run_experiment
 
 
-# =========================
 # Helpers (coordination)
-# =========================
 def _get_prob_A(final_probs) -> float:
     """
     final_probs can be shape (2,) or (1,2) depending on how StateTabularPolicy is stored.
@@ -48,9 +46,7 @@ def _best_independent_js(expert_joint: np.ndarray, grid: int = 301) -> float:
     return best
 
 
-# =========================
 # Analysis (joint-based)
-# =========================
 def analyze_results(
     results: Dict,
     expert_data=None,
@@ -95,20 +91,23 @@ def analyze_results(
     return analysis
 
 
-# =========================
-# Plotting
-# =========================
-def plot_results(
+# Plotting (separate figures)
+def plot_results_separate(
     results: Dict,
     analysis: Dict,
     collect_every: int = 10,
-    save_path: Optional[str] = None,
+    out_prefix: Optional[str] = None,
+    outdir: Optional[str] = None,
     show: bool = True,
+    save_png: bool = False,
+    save_pdf: bool = False,
 ) -> None:
     """
-    results: dict[beta] -> dict[seed] -> {...}
-    analysis: dict with per-beta summaries
-    collect_every: stride used when sampling training history (epochs)
+    Generates SIX separate figures (Plot 1..6). If saving is enabled, each plot is saved
+    as its own file. If show=False, figures are closed.
+
+    - out_prefix: base filename prefix, e.g. "new_bimodal"
+    - outdir: output directory (created if missing)
     """
 
     def sort_betas(betas):
@@ -147,11 +146,31 @@ def plot_results(
 
     beta_cmap = mpl.colormaps.get_cmap("tab10").resampled(max(len(beta_values), 1))
 
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    fig.suptitle("MAGAIL Entropy Experiment Results", fontsize=16)
+    if outdir is None:
+        outdir = os.path.join("plots", "entropy_exp")
+    if out_prefix is None:
+        out_prefix = "new"
 
-    # ---------- Plot 1: P(A) vs β (violins) ----------
-    ax1 = axes[0, 0]
+    if save_png or save_pdf:
+        os.makedirs(outdir, exist_ok=True)
+
+    def _save(fig, stem: str):
+        """Save figure to disk according to save_png/save_pdf flags."""
+        if not (save_png or save_pdf):
+            return
+        if save_png:
+            p = os.path.join(outdir, f"{out_prefix}_{stem}.png")
+            fig.savefig(p, dpi=300, bbox_inches="tight")
+            print(f"[saved] {p}")
+        if save_pdf:
+            p = os.path.join(outdir, f"{out_prefix}_{stem}.pdf")
+            fig.savefig(p, dpi=300, bbox_inches="tight")
+            print(f"[saved] {p}")
+
+    # Plot 1: P(A) vs β (violins)
+    fig1, ax1 = plt.subplots(figsize=(7.5, 5.5))
+    fig1.suptitle("Learning Stability", fontsize=14)
+
     data0 = [analysis[b]["final_probs_all_seeds"]["agent_0"] for b in beta_values]
     data1 = [analysis[b]["final_probs_all_seeds"]["agent_1"] for b in beta_values]
 
@@ -187,7 +206,6 @@ def plot_results(
     ax1.set_xticklabels([f"{b}" for b in beta_values])
     ax1.set_xlabel("β")
     ax1.set_ylabel("P(A) across seeds")
-    ax1.set_title("Learning Stability")
 
     handles, labels = ax1.get_legend_handles_labels()
     vio1_patch = mpl.patches.Patch(alpha=0.4, label="Agent 0")
@@ -197,8 +215,13 @@ def plot_results(
     ax1.legend(handles, labels, loc="upper right")
     ax1.grid(True, alpha=0.3)
 
-    # ---------- Plot 2: JS (joint) vs β ----------
-    ax2 = axes[0, 1]
+    fig1.tight_layout()
+    _save(fig1, "plot1_learning_stability")
+
+    # Plot 2: JS (joint) vs β 
+    fig2, ax2 = plt.subplots(figsize=(7.5, 5.5))
+    fig2.suptitle("JS Distance vs β", fontsize=14)
+
     js_per_beta = []
     for b in beta_values:
         js_vals = []
@@ -237,7 +260,6 @@ def plot_results(
 
     ax2.set_xlabel("β")
     ax2.set_ylabel("JS distance (joint)")
-    ax2.set_title("JS Distance vs β")
     ax2.set_xticks(x)
     ax2.set_xticklabels([f"{b}" for b in beta_values])
     ax2.grid(True, alpha=0.3)
@@ -248,8 +270,13 @@ def plot_results(
     labels.append("Across-seed distribution")
     ax2.legend(handles, labels, loc="upper right")
 
-    # ---------- Plot 3: Final P(A) per seed (deterministic jitter) ----------
-    ax3 = axes[0, 2]
+    fig2.tight_layout()
+    _save(fig2, "plot2_js_distance")
+
+    # Plot 3: Final P(A) per seed (deterministic jitter)
+    fig3, ax3 = plt.subplots(figsize=(7.5, 5.5))
+    fig3.suptitle("Final Policy Probabilities Across Seeds", fontsize=14)
+
     markers = ["o", "s"]
     jitter = 0.02
 
@@ -257,7 +284,6 @@ def plot_results(
         pa0 = analysis[b]["final_probs_all_seeds"]["agent_0"]
         pa1 = analysis[b]["final_probs_all_seeds"]["agent_1"]
 
-        # deterministic jitter per beta
         rng = np.random.default_rng(int(10_000 * float(b)) + 12345)
         xs = i + rng.uniform(-jitter, jitter, size=len(seeds))
 
@@ -281,18 +307,21 @@ def plot_results(
         )
 
     ax3.axhline(0.5, color="red", linestyle="--", alpha=0.7, label="0.5 ref")
-    ax3.set_xlabel("β index (jittered)")
+    ax3.set_xlabel("β")
     ax3.set_ylabel("P(A)")
-    ax3.set_title("Final Policy Probabilities Across Seeds")
     ax3.set_xticks(np.arange(len(beta_values)))
     ax3.set_xticklabels([f"{b}" for b in beta_values])
     ax3.legend(fontsize=9, ncol=2)
     ax3.grid(True, alpha=0.3)
 
-    # ---------- Plot 4: Equilibrium selection vs β ----------
-    ax4 = axes[1, 0]
-    eps = 0.05
+    fig3.tight_layout()
+    _save(fig3, "plot3_final_probs_scatter")
 
+    # Plot 4: Equilibrium selection vs β 
+    fig4, ax4 = plt.subplots(figsize=(7.5, 5.5))
+    fig4.suptitle("Equilibrium Selection Across Seeds", fontsize=14)
+
+    eps = 0.05
     prop_AA, prop_BB, prop_sym = [], [], []
     for b in beta_values:
         aa = bb = sym = 0
@@ -318,15 +347,19 @@ def plot_results(
 
     ax4.set_xlabel("β")
     ax4.set_ylabel("Proportion of seeds")
-    ax4.set_title("Equilibrium Selection Across Seeds")
     ax4.set_xticks(x)
     ax4.set_xticklabels([f"{b}" for b in beta_values])
     ax4.set_ylim(0.0, 1.0)
     ax4.grid(True, alpha=0.3)
     ax4.legend(loc="upper right")
 
-    # ---------- Plot 5: Final joint vs Expert joint (extreme β) ----------
-    ax5 = axes[1, 1]
+    fig4.tight_layout()
+    _save(fig4, "plot4_equilibrium_selection")
+
+    # Plot 5: Final joint vs Expert joint (extreme β)
+    fig5, ax5 = plt.subplots(figsize=(7.5, 5.5))
+    fig5.suptitle("Final Joint Action Distribution", fontsize=14)
+
     action_names = ["(A,A)", "(A,B)", "(B,A)", "(B,B)"]
     x = np.arange(len(action_names))
     width = 0.35
@@ -340,17 +373,22 @@ def plot_results(
         std_dist = np.std(final_joint, axis=0)
         off = -width / 2 if j == 0 else width / 2
         ax5.bar(x + off, mean_dist, width, alpha=0.8, yerr=std_dist, capsize=5, label=f"β={b}")
+
     ax5.plot(x, expert_joint, "r--o", linewidth=2, markersize=5, label="Expert joint")
     ax5.set_xlabel("Joint Actions")
     ax5.set_ylabel("Probability")
-    ax5.set_title("Final Joint Action Distribution")
     ax5.set_xticks(x)
     ax5.set_xticklabels(action_names)
     ax5.legend()
     ax5.grid(True, alpha=0.3)
 
-    # ---------- Plot 6: Policy P(A) evolution (repr. seed) ----------
-    ax6 = axes[1, 2]
+    fig5.tight_layout()
+    _save(fig5, "plot5_final_joint_vs_expert")
+
+    # Plot 6: Policy P(A) evolution (repr. seed) 
+    fig6, ax6 = plt.subplots(figsize=(7.5, 5.5))
+    fig6.suptitle("Policy Evolution During Training", fontsize=14)
+
     for b in extremes:
         seed = seeds[0]
         prob_hist = results[b][seed]["history"]["policy_probs"]["agent_0"]
@@ -361,26 +399,26 @@ def plot_results(
             return arr[0, 0] if arr.ndim == 2 else arr[0]
 
         ax6.plot(epochs, [_pA_of_step(p) for p in prob_hist], label=f"β={b}, P(A)", linewidth=2)
+
     ax6.axhline(0.5, color="red", linestyle="--", alpha=0.7, label="0.5 ref")
     ax6.set_xlabel("Training Epoch")
     ax6.set_ylabel("P(A) for Agent 0")
-    ax6.set_title("Policy Evolution During Training")
     ax6.legend()
     ax6.grid(True, alpha=0.3)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-
-    if save_path is not None:
-        outdir = os.path.dirname(save_path)
-        if outdir:
-            os.makedirs(outdir, exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        print(f"[saved] {save_path}")
+    fig6.tight_layout()
+    _save(fig6, "plot6_policy_evolution")
 
     if show:
         plt.show()
     else:
-        plt.close(fig)
+        # close all six figs to avoid GUI / memory use in headless mode
+        plt.close(fig1)
+        plt.close(fig2)
+        plt.close(fig3)
+        plt.close(fig4)
+        plt.close(fig5)
+        plt.close(fig6)
 
 
 def coordination_consistency(results: Dict) -> None:
@@ -430,9 +468,9 @@ def main() -> None:
         "--tag",
         type=str,
         default="new",
-        help="Filename prefix for saved figure, e.g. new -> new_mixed.png",
+        help="Filename prefix for saved figure, e.g. new -> new_mixed_*.png",
     )
-    parser.add_argument("--save", action="store_true", help="Save the figure to disk (PNG + PDF)")
+    parser.add_argument("--save", action="store_true", help="Save the figure(s) to disk (PNG + PDF)")
     parser.add_argument("--no_show", action="store_true", help="Do not open a window (useful for headless runs)")
     args = parser.parse_args()
 
@@ -458,14 +496,19 @@ def main() -> None:
     analysis = analyze_results(results, expert_data, use_sample_var=True, report_js_divergence=False)
 
     print("\nGenerating plots...")
-    if args.save:
-        png_path = os.path.join(args.outdir, f"{args.tag}_{args.expert_type}.png")
-        pdf_path = os.path.join(args.outdir, f"{args.tag}_{args.expert_type}.pdf")
+    # Build an output prefix like "new_bimodal"
+    out_prefix = f"{args.tag}_{args.expert_type}"
 
-        plot_results(results, analysis, collect_every=collect_every, save_path=png_path, show=(not args.no_show))
-        plot_results(results, analysis, collect_every=collect_every, save_path=pdf_path, show=False)
-    else:
-        plot_results(results, analysis, collect_every=collect_every, save_path=None, show=(not args.no_show))
+    plot_results_separate(
+        results=results,
+        analysis=analysis,
+        collect_every=collect_every,
+        out_prefix=out_prefix,
+        outdir=args.outdir,
+        show=(not args.no_show),
+        save_png=args.save,
+        save_pdf=args.save,
+    )
 
     print("\nCoordination consistency:")
     coordination_consistency(results)

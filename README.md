@@ -2,47 +2,48 @@
 
 ## Overview
 
-This repository contains a set of controlled experiments designed to reveal and analyze **structural weaknesses in the Multi-Agent Generative Adversarial Imitation Learning (MAGAIL)** framework. Although MAGAIL extends GAIL to multi-agent settings, its theoretical guarantees rely on assumptions that seldom hold in realistic environments. Our experiments demonstrate two critical weaknesses:
+This repository contains controlled experiments studying **when occupancy matching identifies an expert equilibrium in MAGAIL**. Existing recovery results rely on strong assumptions that often fail in multi-agent games. We isolate two key issues:
 
-1. **MAGAIL implicitly relies on the absence of entropy regularization in multi-agent learning**
-2. **MAGAIL assumes the existence of *unique* best responses**
+1. **Entropy regularization (β > 0) changes the objective** and can bias learning away from correlated expert behavior under factorized policies, even if it stabilizes training.
+2. **Best responses may be non-unique even for a fixed opponent profile**, so occupancy matching can be non-identifying: policies can match expert demonstrations on-support yet differ strategically (e.g., be exploitable off-support).
 
-This repository provides reproducible environments, training loops, and evaluation tools illustrating these failures in minimal settings.
-
----
-
-## Weakness #1 — MAGAIL Assumes No Entropy Regularization
-
-### Theoretical Background
-
-MAGAIL's theoretical convergence guarantees assume $\beta=0$ (no entropy regularization). However, standard practice uses $\beta>0$ to stabilize training, which fundamentally changes the optimization landscape: entropy bonuses introduce coordination failures between independently trained agents even when they perfectly match individual occupancy measures.
-
-### Empirical Demonstration: Coordination Environment
-
-To illustrate this weakness, we construct a tiny, reproducible experiment that shows two ways MAGAIL can “fail” in a simple 2×2 coordination game—and how an entropy bonus changes the behavior.
-
-* **Fail 1 — Symmetry/selection failure (β = 0):** with two equally-good pure NE (AA and BB), vanilla MAGAIL arbitrarily collapses to one convention depending on randomness.
-* **Fail 2 — Correlated-demo mismatch:** when expert demonstrations are **correlated** (only AA/BB), MAGAIL with **independent** agent policies can’t represent that correlation. Even with entropy, it can only produce an **independent** 50/50 mix (which necessarily places mass on AB/BA), so the joint distribution never matches the demos.
-
-With a sufficiently large entropy bonus β, both agents converge to the **max-entropy mix** (0.5/0.5) and training stabilizes across seeds.
+All experiments are tabular and fully reproducible.
 
 ---
 
-## Weakness #2 — MAGAIL Assumes Unique Best Responses
+## Weakness #1 — Entropy regularization changes the objective
 
-### The™
+### Theoretical background
 
-Below Corollary 5, the MAGAIL authors assume that for each agent $i$, the expert policy $\pi_{i_E}$ is the **unique** optimal response to the other experts' policies. However, this assumption fails in many realistic settings where multiple equally optimal responses exist due to symmetry or payoff indifference.
+The strongest recovery/identification statement in MAGAIL is proved for the **unregularized** setting (β = 0). In practice, however, entropy bonuses (β > 0) are commonly used to stabilize policy optimization. In multi-agent settings this is not an innocuous modification: the entropy term is evaluated under the **learner–learner interaction distribution**, and under **factorized per-agent policies** it can bias learning toward high-entropy independent solutions. As a result, the optimization problem solved in practice can differ qualitatively from the unregularized occupancy-matching objective.
 
-When best responses are non-unique, occupancy measure matching becomes insufficient: a learner can perfectly match the expert's occupancy distribution while adopting a completely different (and highly exploitable) strategy. This reveals a fundamental limitation: **occupancy matching does not guarantee strategic equivalence in games with multiple best responses.**
+### Empirical demonstration: coordination environment
 
-### Empirical Demonstration: Multi-Response Exploitability
+We illustrate this effect in a minimal 2×2 coordination game. The experiment highlights two distinct phenomena and how entropy changes the outcome:
 
-To illustrate this weakness, we construct a tiny, reproducible experiment that shows how MAGAIL can produce highly exploitable policies in a simple two-agent zero-sum game with multiple best responses.
+- **Fail 1 — unstable selection among equally optimal responses (β = 0):**  
+  when multiple equally good conventions exist, removing entropy leads to seed-dependent training dynamics: different runs converge to different conventions despite identical expert data.
 
-In this environment, the expert policies form a Nash equilibrium, but each agent has multiple equally optimal responses to the other's strategy. When trained with MAGAIL, the learned policies match the expert occupancy measures but deviate significantly in strategic behavior, leading to high exploitability.
+- **Fail 2 — correlated-demo mismatch under factorized policies:**  
+  when expert demonstrations are **correlated** (e.g., only AA/BB), independent per-agent policies cannot represent the correlation exactly. Adding entropy further pushes toward the maximally mixed *independent* solution (marginals near 0.5/0.5), which necessarily assigns probability mass to AB/BA, so the learned joint distribution cannot match the demonstrations.
 
-Our experiments demonstrate that even with perfect recovery of the expert's state visitation distribution and complete knowledge of the transition model, MAGAIL produces policies with large Nash gaps. This reveals a fundamental limitation: **occupancy measure matching is insufficient for recovering Nash equilibria when multiple best responses exist.**
+Overall, increasing β improves reproducibility by reducing across-seed variance, but it does so by changing the effective objective and (in correlated-demo regimes) by favoring high-entropy independent behavior rather than reproducing correlated expert play.
+
+---
+
+## Weakness #2 — Non-unique best responses make occupancy matching non-identifying
+
+### Theoretical background
+
+MAGAIL’s recovery/identification argument relies on a **uniqueness condition**: for each agent \(i\), the expert policy \(\pi_i^E\) is the *unique* optimal response to the other experts’ profile \(\pi_{-i}^E\) (equivalently, the multi-agent RL solution mapping is single-valued on a relevant reward set). This is a strong requirement in multi-agent games: even for a **fixed** opponent strategy profile, the best-response set \(\mathrm{BR}_i(\pi_{-i})\) can contain multiple policies due to symmetry, indifference, or off-support freedom.
+
+When best responses are non-unique, **occupancy matching can become non-identifying**: different policies may agree with the expert on the demonstrated (on-support) behavior while differing elsewhere. Since strategic optimality is defined by **counterfactual unilateral deviations** (best responses), matching the expert occupancy on its support does not in general guarantee strategic equivalence (e.g., low exploitability / small Nash-Gap).
+
+### Empirical demonstration: exploitability under off-support deviations
+
+We demonstrate this in a minimal two-player zero-sum Markov game designed so that expert demonstrations concentrate on a “safe” region of the state space. The expert profile \(\pi^E\) is a Nash equilibrium, but unilateral deviations can reach an unobserved region where correct defensive play matters. Because this region is never visited in the demonstrations, an offline occupancy-matching objective provides no signal there.
+
+Empirically, MAGAIL (and a BC baseline) can closely match the expert behavior on demonstrated trajectories while remaining **highly exploitable**, as measured by a positive Nash-Gap. This illustrates the core limitation: without coverage of states reached by unilateral best-response deviations, occupancy matching alone is insufficient to recover strategically robust equilibria when best responses are not uniquely pinned down by the data.
 
 ---
 
@@ -51,30 +52,33 @@ Our experiments demonstrate that even with perfect recovery of the expert's stat
 ```
 rl-master-project/
 │
-├── envs/                      # Minimal multi-agent environments
+├── envs/                      # Minimal tabular Markov games (coordination, zero-sum)
 │   ├── __init__.py
 │   ├── entropy_coordination.py
 │   └── zero_sum.py
 │
-├── runners/                   # Training and experiment scripts
+├── runners/                   # Reproducible experiment entrypoints (generate paper figures)
 │   ├── entropy_coordination_runner.py
 │   └── zero_sum_runner.py
 │
-├── MAGAIL.py                  # Multi-Agent GAIL implementation
+├── MAGAIL.py                  # MAGAIL implementation (training loop + logging)
 ├── BC.py                      # Behavior Cloning baseline
-├── calc_exploitability.py     # Exploitability analysis utilities
-└── README.md                  # Project documentation
+├── calc_exploitability.py     # Exploitability / Nash-gap computation utilities
+└── README.md                  # Documentation + reproduction commands
 ```
+
+Notes:
+- `plots/` contains generated figures and can be regenerated by running the scripts in `runners/`.
 
 ---
 
 ## Requirements
 
-* Python 3.9+
-* PyTorch
-* NumPy
-* Matplotlib
-* SciPy
+- Python 3.9+ (tested with Python 3.13)
+- PyTorch
+- NumPy
+- Matplotlib
+- SciPy
 
 Install dependencies:
 
@@ -83,6 +87,8 @@ pip install torch numpy matplotlib scipy
 ```
 
 ## Running Experiments
+
+All scripts are deterministic w.r.t. the provided `--seeds` (tabular setting; no GPU required).
 
 ### Entropy Coordination Experiment:
 
@@ -101,7 +107,9 @@ python runners/entropy_coordination_runner.py --expert_type bimodal --save --no_
 python runners/entropy_coordination_runner.py --expert_type all_AA  --save --no_show
 ```
 
-Figures are saved to plots/entropy_exp/ with names like new_mixed.png and new_mixed.pdf.
+Outputs are written to `plots/entropy_exp/` with filenames of the form:
+- `{tag}_{expert_type}.png`
+- `{tag}_{expert_type}.pdf`
 
 #### Expert types:
 
@@ -149,27 +157,33 @@ CLI options:
 
 ---
 
-### Zero-Sum Exploitability Experiment:
+### Zero-sum exploitability experiment
+
+Run:
 
 ```bash
 python runners/zero_sum_runner.py
 ```
 
+This script:
+1.	generates an expert dataset from a fixed expert profile,
+2.	trains MAGAIL (β = 0) and a Behavior Cloning (BC) baseline on the same offline data,
+3.	computes exploitability (Nash-gap style) via best responses in the induced single-agent MDPs, and
+4.	writes a comparison plot to `plots/exploitability_exp/`.
+
 Defaults:
 
-* `expert_action 2` (middle action in 3-action game)
-* `expert_total 1000` (expert samples)
-* `magail_seeds 42 123 456`
-* `bc_seeds 42 123 456`
-* `num_epochs 1000`
-* `rollout_episodes 200`
-* `batch_size 128`
-* `lr_policy 0.01` `lr_disc 0.01`
-* `beta 0.0` (zero entropy for zero-sum games)
-* `gamma 0.9` (discount factor)
-* `reward_style non_saturating`
+* `expert_action = 2` (middle action in 3-action game)
+* `expert_total = 1000` (expert samples)
+* `magail_seeds = [42, 123, 456]`
+* `bc_seeds = [42, 123, 456]`
+* `num_epochs = 1000`
+* `rollout_episodes = 200`
+* `batch_size = 128`
+* `lr_policy = 0.01` `lr_disc = 0.01`
+* `beta = 0.0` (zero entropy for zero-sum games)
+* `gamma = 0.9` (discount factor)
+* `reward_style = non_saturating` (uses log D)
 
-The script trains both MAGAIL and BC baselines, computes exploitability curves, and generates comparison plots.
-
-**Note:** This experiment has no CLI arguments.
+Note: this experiment currently has no CLI arguments; to change hyperparameters, edit `runners/zero_sum_runner.py`.
 

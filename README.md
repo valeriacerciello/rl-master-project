@@ -83,7 +83,7 @@ Notes:
 Install dependencies:
 
 ```bash
-pip install torch numpy matplotlib scipy
+pip install -r requirements.txt
 ```
 
 ## Running Experiments

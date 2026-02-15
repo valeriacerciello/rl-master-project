@@ -2,9 +2,7 @@
 
 import numpy as np
 
-# =========================
 # Environment
-# =========================
 class ZeroSumGame:
     """
     Discounted, looping 7-state game used in the 'ZeroSum' experiments.

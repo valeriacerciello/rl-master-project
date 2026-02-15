@@ -2,9 +2,7 @@
 
 import numpy as np
 
-# =========================
 # Environment
-# =========================
 class CoordinationGame:
     """
     Single-state, one-step, two-agent coordination game:
@@ -46,9 +44,7 @@ class CoordinationGame:
             print("   ".join(row))
 
 
-# =========================
 # Expert data generators (vectorized)
-# =========================
 def joint_to_index(a0, a1):
     return a0 * 2 + a1
 

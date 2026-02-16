@@ -28,9 +28,7 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
     os.environ["PYTHONHASHSEED"] = str(seed)
 
-# =========================
 # Policies
-# =========================
 class StateTabularPolicy(nn.Module):
     """Categorical policy π(a|s) with logits table [num_states, num_actions]."""
 
@@ -64,9 +62,7 @@ class StateTabularPolicy(nn.Module):
         ent = -(probs * logp).sum(dim=-1)
         return ent.mean()
 
-# =========================
 # Discriminator
-# =========================
 class TabularStateJointDiscriminator(nn.Module):
     """D(s, a0, a1) with logits table [num_states, nA, nA]."""
 
@@ -98,9 +94,7 @@ class TabularStateJointDiscriminator(nn.Module):
     def forward(self, a0, a1, s_idx=None):
         return torch.sigmoid(self.logit(a0, a1, s_idx))
 
-# =========================
 # Rollout
-# =========================
 def collect_policy_trajectories(
     policies,
     env_ctor,
@@ -172,9 +166,7 @@ def collect_policy_trajectories(
         "rewards": rewards,
     }
 
-# =========================
 # MAGAIL
-# =========================
 class MAGAILTrainer:
     """
     MAGAIL with tabular policies and discriminator.
@@ -419,9 +411,7 @@ def _joint_hist_from_rollout(rollout, n_actions):
 def _matching_rate(rollout):
     return float((rollout["a0"] == rollout["a1"]).float().mean().item())
 
-# =========================
 # Runner
-# =========================
 def run_experiment(
     env_name="coordination",
     seeds=[42, 123, 456, 789, 999],
@@ -530,9 +520,7 @@ def run_experiment(
             print(" Done!")
     return results, expert_data, collect_every
 
-# =========================
 # Utilities
-# =========================
 def print_policy_by_state(policy, name="policy", state_names=None):
     probs = policy.get_probs().detach().cpu().numpy()
     if probs.ndim == 1:

@@ -2,9 +2,7 @@
 
 import numpy as np
 
-# =========================
 # Environment
-# =========================
 class ZeroSumGame:
     """
     Discounted, looping 7-state game used in the 'ZeroSum' experiments.
@@ -76,7 +74,7 @@ class ZeroSumGame:
         P = np.zeros((S,A,A,S), dtype=np.float32)
 
         R[Sxplt1,:,:] = +1.0
-        R[Sxplt2,:,:] = -0.1
+        R[Sxplt2,:,:] = -1.0
 
         for a in range(A):
             for b in range(A):

@@ -21,9 +21,7 @@ def _check_gamma(gamma: float) -> None:
 def _row_stochastic(mat: np.ndarray, axis: int = 1, atol: float = 1e-6) -> bool:
     return np.allclose(mat.sum(axis=axis), 1.0, atol=atol)
 
-# ============================================================
 # Multi-Agent Behavior Cloning with Geometric Rollouts
-# ============================================================
 class MultiAgentBehaviorCloning:
     """
     Multi-agent behavior cloning with geometric rollouts.
@@ -84,9 +82,7 @@ class MultiAgentBehaviorCloning:
         if not np.allclose(P_rows, 1.0, atol=1e-6):
             raise ValueError("Each (s,a,b)-row of transition must sum to 1.")
 
-    # =========================
     # Sampling
-    # =========================
     def _rollout_geometric(self) -> List[tuple[int, int, int]]:
         """Return a single trajectory: list of (s, a1, a2) with T ~ Geom(1-γ)."""
         traj: List[tuple[int, int, int]] = []
@@ -100,9 +96,7 @@ class MultiAgentBehaviorCloning:
             s = int(self.rng.choice(self.S, p=self.P[s, a1, a2]))
         return traj
 
-    # =========================
     # Estimation
-    # =========================
     @staticmethod
     def _counts_to_policy(counts: np.ndarray) -> np.ndarray:
         """
@@ -118,9 +112,7 @@ class MultiAgentBehaviorCloning:
             where=(totals > 0.0),
         )
 
-    # =========================
     # Training
-    # =========================
     def train(
         self,
         eval_interval: int,
